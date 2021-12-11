@@ -1,0 +1,5 @@
+﻿wandb
+easydict
+torchaudio==0.9.0
+ptflops
+thop
