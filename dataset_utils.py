@@ -93,8 +93,8 @@ class LJSpeechCollator:
 
         mel = torch.permute(mel, (1, 0, 2))
         mel_loss = torch.permute(mel_loss, (1, 0, 2))
-        print(f"collator| shapes mel:{mel.shape},"
-              f"audio: {waveform.shape}, mel_loss: {mel_loss.shape}")
+        #print(f"collator| shapes mel:{mel.shape},"
+        #      f"audio: {waveform.shape}, mel_loss: {mel_loss.shape}")
 
         # print(f"shape mel: {mel.shape}")
         # print(f"wav mel: {waveform.shape}")

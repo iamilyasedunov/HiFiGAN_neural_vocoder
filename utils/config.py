@@ -9,13 +9,14 @@ def default_field(obj):
 
 @dataclass
 class TaskConfig:
+    len_data: int = 200000
     save_dir: str = ""
     log_dir: str = ""
     data_path: str = './LJSpeech-1.1/'
     verbosity: int = 2
     name: str = "TTS"
-    log_step: int = 10
-    exper_name: str = f"neural_vocoder_test_start"
+    log_step: int = 100
+    exper_name: str = f"neural_vocoder_test_start_weight_norm"
     device: torch.device = torch.device(
         'cuda:0' if torch.cuda.is_available() else 'cpu')
 

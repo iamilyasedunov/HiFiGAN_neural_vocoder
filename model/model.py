@@ -1,5 +1,6 @@
 from utils.utils import *
-
+from torch.nn import Conv1d, ConvTranspose1d, AvgPool1d, Conv2d
+from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
 
 def get_padding(kernel_size, dilation=1):
     return int((kernel_size*dilation - dilation)/2)
@@ -163,10 +164,10 @@ class MultiScaleDiscriminator(nn.Module):
 class ResBlockCore(nn.Module):
     def __init__(self, channels, kernel_size, dilations):
         super().__init__()
-        self.conv1 = nn.Conv1d(channels, channels, kernel_size, (1,), dilation=dilations[0],
-                               padding=get_padding(kernel_size, dilations[0][0]))
-        self.conv2 = nn.Conv1d(channels, channels, kernel_size, (1,), dilation=dilations[1],
-                               padding=get_padding(kernel_size, dilations[1][0]))
+        self.conv1 = weight_norm(nn.Conv1d(channels, channels, kernel_size, (1,), dilation=dilations[0],
+                                 padding=get_padding(kernel_size, dilations[0][0])))
+        self.conv2 = weight_norm(nn.Conv1d(channels, channels, kernel_size, (1,), dilation=dilations[1],
+                                 padding=get_padding(kernel_size, dilations[1][0])))
 
     def forward(self, x):
         x_lrelu_conv1 = nn.LeakyReLU(LRELU_NEGATIVE_SLOPE)(x)
@@ -192,7 +193,7 @@ class MRF(nn.Module):
 
     def forward(self, x):
         for idx in range(len(self.mrf_layers)):
-            x += self.mrf_layers[idx](x)
+            x = x + self.mrf_layers[idx](x)
         return x
 
 
@@ -200,7 +201,8 @@ class Generator(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.input_conv = nn.Conv1d(config.input_channels, config.upsample_initial_channel, kernel_size=(7,))
+        self.input_conv = weight_norm(nn.Conv1d(config.input_channels, config.upsample_initial_channel,
+                                      kernel_size=(7,), padding=3))
         hu = config.upsample_initial_channel
         generator_layers = []
         out_channels = None
@@ -210,25 +212,95 @@ class Generator(nn.Module):
             out_channels = hu // (2 ** (l + 1))
             generator_layers += [
                 nn.LeakyReLU(LRELU_NEGATIVE_SLOPE),
-                nn.ConvTranspose1d(in_channels, out_channels, ku, ur, padding=(ku - ur) // 2),
+                weight_norm(nn.ConvTranspose1d(in_channels, out_channels, ku, ur, padding=(ku - ur) // 2)),
                 MRF(config, out_channels),
             ]
         assert out_channels is not None
         self.generator = nn.Sequential(*generator_layers)
         self.output_layers = nn.Sequential(
-            nn.LeakyReLU(LRELU_NEGATIVE_SLOPE),
-            nn.Conv1d(out_channels, 1, kernel_size=(7,), stride=(1,), padding=3),
-            nn.Tanh(),
-        )
+                nn.LeakyReLU(LRELU_NEGATIVE_SLOPE),
+                weight_norm(nn.Conv1d(out_channels, 1, kernel_size=(7,), stride=(1,), padding=3)),
+                nn.Tanh(),
+            )
 
     def forward(self, x):
-        # print(x.shape)
+        # print(f"x(input): {x.shape}")
         x = self.input_conv(x)
-        # print(x.shape)
+        # print(f"x(input_conv): {x.shape}")
         x = self.generator(x)
-        # print(x.shape)
+        # print(f"x(generator): {x.shape}")
         x = self.output_layers(x)
-        return x.transpose(0, 1)[0]
+        # print(f"x(output): {x.shape}")
+        return x.squeeze()
+
+
+class ResBlock2(torch.nn.Module):
+    def __init__(self, h, channels, kernel_size=3, dilation=(1, 3)):
+        super(ResBlock2, self).__init__()
+        self.h = h
+        self.convs = nn.ModuleList([
+            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[0],
+                               padding=get_padding(kernel_size, dilation[0][0]))),
+            weight_norm(Conv1d(channels, channels, kernel_size, 1, dilation=dilation[1],
+                               padding=get_padding(kernel_size, dilation[1][0])))
+        ])
+        #self.convs.apply(init_weights)
+
+    def forward(self, x):
+        for c in self.convs:
+            xt = F.leaky_relu(x, LRELU_NEGATIVE_SLOPE)
+            xt = c(xt)
+            x = xt + x
+        return x
+
+
+class Generator_(torch.nn.Module):
+    def __init__(self, h):
+        super(Generator_, self).__init__()
+        self.h = h
+        self.num_kernels = len(h.resblock_kernel_sizes)
+        self.num_upsamples = len(h.upsample_rates)
+        self.conv_pre = weight_norm(Conv1d(80, h.upsample_initial_channel, 7, 1, padding=3))
+        resblock = ResBlock2
+
+        self.ups = nn.ModuleList()
+        for i, (u, k) in enumerate(zip(h.upsample_rates, h.upsample_kernel_sizes)):
+            self.ups.append(weight_norm(
+                ConvTranspose1d(h.upsample_initial_channel//(2**i), h.upsample_initial_channel//(2**(i+1)),
+                                k, u, padding=(k-u)//2)))
+
+        self.resblocks = nn.ModuleList()
+        for i in range(len(self.ups)):
+            ch = h.upsample_initial_channel//(2**(i+1))
+            for j, (k, d) in enumerate(zip(h.resblock_kernel_sizes, h.resblock_dilation_sizes)):
+                self.resblocks.append(resblock(h, ch, k, d))
+
+        self.conv_post = weight_norm(Conv1d(ch, 1, 7, 1, padding=3))
+        #self.ups.apply(init_weights)
+        #self.conv_post.apply(init_weights)
+
+    def forward(self, x):
+        # print(f"x(start)   : {x.shape}")
+        x = self.conv_pre(x)
+        # print(f"x(conv_pre): {x.shape}")
+        for i in range(self.num_upsamples):
+            x = F.leaky_relu(x, LRELU_NEGATIVE_SLOPE)
+            x = self.ups[i](x)
+            xs = None
+            for j in range(self.num_kernels):
+                if xs is None:
+                    xs = self.resblocks[i*self.num_kernels+j](x)
+                else:
+                    xs += self.resblocks[i*self.num_kernels+j](x)
+            x = xs / self.num_kernels
+            # print(f"x(upsample): {x.shape}")
+        x = F.leaky_relu(x)
+        x = self.conv_post(x)
+        # print(f"x(conv_post): {x.shape}")
+
+        x = torch.tanh(x)
+
+        return x.squeeze()
 
 
 class HiFiGAN:
