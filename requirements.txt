@@ -1,5 +1,14 @@
-﻿wandb
-easydict
-torchaudio==0.9.0
+﻿wandb~=0.12.7
+easydict~=1.9
+torchaudio~=0.10.0+cu111
 ptflops
-thop
+thop~=0.0.31.post2005241907
+librosa==0.8.1
+# pip install torch==1.10.0+cu111 torchaudio==0.10.0+cu111 -f https://download.pytorch.org/whl/torch_stable.html
+pandas~=0.25.1
+numpy~=1.17.2
+matplotlib~=3.1.1
+torch~=1.10.0+cu111
+tqdm~=4.36.1
+ipython~=7.8.0
+scikit-learn~=0.21.3

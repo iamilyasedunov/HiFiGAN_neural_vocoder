@@ -12,7 +12,7 @@ docker run -it \
     --expose 22 -P \
     --shm-size 8G \
     --runtime=nvidia \
-    -v $PWD/../../:/home/neural_vocoder \
+    -v $PWD/../../:/home/HiFiGAN_neural_vocoder \
     --detach \
     --name "${container_name}" \
     --entrypoint /bin/bash \

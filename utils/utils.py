@@ -27,6 +27,7 @@ from torch.cuda.amp import autocast
 
 # Helper functions
 
+LRELU_NEGATIVE_SLOPE = 0.2
 
 class Collator:
     def __call__(self, data):
