@@ -175,6 +175,7 @@ class ResBlockCore(nn.Module):
 
         x_lrelu_conv2 = nn.LeakyReLU(LRELU_NEGATIVE_SLOPE)(x_lrelu_conv1)
         x_lrelu_conv2 = self.conv2(x_lrelu_conv2) + x_lrelu_conv1
+
         return x_lrelu_conv2
 
 
@@ -192,8 +193,13 @@ class MRF(nn.Module):
             )
 
     def forward(self, x):
+        xs = None
         for idx in range(len(self.mrf_layers)):
-            x = x + self.mrf_layers[idx](x)
+            if xs is None:
+                xs = self.mrf_layers[idx](x)
+            else:
+                xs = xs + self.mrf_layers[idx](x)
+        x = xs / len(self.mrf_layers)
         return x
 
 
@@ -228,6 +234,7 @@ class Generator(nn.Module):
         x = self.input_conv(x)
         # print(f"x(input_conv): {x.shape}")
         x = self.generator(x)
+        # print(self.generator.__str__())
         # print(f"x(generator): {x.shape}")
         x = self.output_layers(x)
         # print(f"x(output): {x.shape}")
@@ -248,6 +255,7 @@ class ResBlock2(torch.nn.Module):
 
     def forward(self, x):
         for c in self.convs:
+            print(c.__str__())
             xt = F.leaky_relu(x, LRELU_NEGATIVE_SLOPE)
             xt = c(xt)
             x = xt + x
@@ -286,6 +294,7 @@ class Generator_(torch.nn.Module):
         for i in range(self.num_upsamples):
             x = F.leaky_relu(x, LRELU_NEGATIVE_SLOPE)
             x = self.ups[i](x)
+            print(self.ups[i].__str__())
             xs = None
             for j in range(self.num_kernels):
                 if xs is None:
