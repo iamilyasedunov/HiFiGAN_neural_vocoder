@@ -19,6 +19,6 @@ def plot_spectrogram_to_buf(spectrogram_tensor, name=None):
     plt.imshow(spectrogram_tensor)
     plt.title(name)
     buf = io.BytesIO()
-    plt.savefig(buf, format='png')
+    plt.savefig(buf, format='jpg')
     buf.seek(0)
     return buf

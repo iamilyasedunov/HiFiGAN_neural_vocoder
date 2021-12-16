@@ -9,14 +9,15 @@ def default_field(obj):
 
 @dataclass
 class TaskConfig:
-    len_data: int = 200000
+    max_len: int = 10000000
+    len_data: int = max_len
     save_dir: str = ""
     log_dir: str = ""
     data_path: str = './LJSpeech-1.1/'
     verbosity: int = 2
     name: str = "TTS"
     log_step: int = 100
-    exper_name: str = f"neural_vocoder_test_start_weight_norm"
+    exper_name: str = f"neural_vocoder_overfit_done"
     device: torch.device = torch.device(
         'cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -30,7 +31,8 @@ class TaskConfig:
     fmin: int = 0
     fmax: int = 8000
     fmax_for_loss: int = None
-
+    power: float = 1.0
+    config: bool = False
     # model config V3
     lrelu_negative_slope: float = 0.2
     input_channels: int = 80
@@ -41,7 +43,7 @@ class TaskConfig:
     upsample_initial_channel: int = 256 # hu
 
     num_gpus: int = 0
-    batch_size: int = 16
+    batch_size: int = 64
     learning_rate: float = 0.0002
     adam_b1: float = 0.8
     adam_b2: float = 0.99

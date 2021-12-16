@@ -1,6 +1,9 @@
 from datetime import datetime
-
+from logger.utils import plot_spectrogram_to_buf
 import numpy as np
+import PIL
+import random
+from torchvision.transforms import ToTensor
 
 
 class WanDBWriter:
@@ -56,6 +59,11 @@ class WanDBWriter:
         self.wandb.log({
             self.scalar_name(scalar_name): self.wandb.Image(image)
         }, step=self.step)
+
+    def add_spectrogram(self, scalar_name, spectrogram_batch):
+        spectrogram = spectrogram_batch.select(0, 0)
+        image = PIL.Image.open(plot_spectrogram_to_buf(spectrogram.cpu()))
+        self.add_image(scalar_name, ToTensor()(image))
 
     def add_audio(self, scalar_name, audio, sample_rate=None):
         audio = audio.detach().cpu().numpy().T
