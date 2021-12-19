@@ -43,8 +43,10 @@ def main(config):
             model.train_step(batch)
             model.train_logging()
             if metrics["num_steps"] % config.val_step == 0 and metrics["num_steps"] != 1:
-                model.validation(val_dataloader)
-                model.save_checkpoint(epoch)
+                val_loss = model.validation(val_dataloader)
+                if val_loss < metrics["best_loss"]:
+                    metrics["best_loss"] = val_loss
+                    model.save_checkpoint(epoch)
         model.sched_step()
 
 

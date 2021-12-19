@@ -1,14 +1,7 @@
 import os
-import pandas as pd
-from tqdm import tqdm
 import torch
-import csv
 import torchaudio
-from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from typing import Tuple, Union, List, Callable, Optional, Dict
-import pathlib
-from itertools import islice
-from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 import dataclasses
 import random
@@ -50,10 +43,10 @@ class LJSpeechDataset(torchaudio.datasets.LJSPEECH):
         # self.config.fmax_loss = None
         self.featurizer = MelSpectrogram(config)
         if train:
-            self._flist = self._flist[:int(len(self._flist) * 0.90)]
+            self._flist = self._flist[:int(len(self._flist) * 0.80)]
             print(f"Len train manifest: {len(self._flist)}")
         else:
-            self._flist = self._flist[int(len(self._flist) * 0.90):]
+            self._flist = self._flist[int(len(self._flist) * 0.80):]
             print(f"Len val manifest: {len(self._flist)}")
 
     def __getitem__(self, index: int):
