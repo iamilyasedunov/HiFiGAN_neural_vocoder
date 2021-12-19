@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from tqdm import tqdm
 import torch
+import csv
 import torchaudio
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 from typing import Tuple, Union, List, Callable, Optional, Dict
@@ -44,11 +45,17 @@ class Batch:
 
 class LJSpeechDataset(torchaudio.datasets.LJSPEECH):
 
-    def __init__(self, root, config):
+    def __init__(self, root, config, train=True):
         super().__init__(root=root)
         self.config = config
         # self.config.fmax_loss = None
         self.featurizer = MelSpectrogram(config)
+        if train:
+            self._flist = self._flist[:int(len(self._flist) * 0.90)]
+            print(f"Len train manifest: {len(self._flist)}")
+        else:
+            self._flist = self._flist[int(len(self._flist) * 0.90):]
+            print(f"Len val manifest: {len(self._flist)}")
 
     def __getitem__(self, index: int):
         audio, _, _, _ = super().__getitem__(index)

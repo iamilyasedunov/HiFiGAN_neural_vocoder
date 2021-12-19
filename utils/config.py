@@ -7,17 +7,21 @@ def default_field(obj):
     return field(default_factory=lambda: copy.copy(obj))
 
 
+MAX_LEN = 10000000
+
+
 @dataclass
 class TaskConfig:
-    max_len: int = 10000000
-    len_data: int = max_len
+    len_data: int = MAX_LEN
     save_dir: str = ""
     log_dir: str = ""
     data_path: str = './LJSpeech-1.1/'
     verbosity: int = 2
     name: str = "TTS"
     log_step: int = 100
-    exper_name: str = f"neural_vocoder_overfit_done"
+    val_log_step: int = 100
+    val_step: int = 1000
+    exper_name: str = f"neural_vocoder_full_model"
     device: torch.device = torch.device(
         'cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -37,13 +41,13 @@ class TaskConfig:
     lrelu_negative_slope: float = 0.2
     input_channels: int = 80
     upsample_rates: List[int] = default_field([8, 8, 4])
-    upsample_kernel_sizes: List[int] = default_field([16, 16, 8]) # ku
-    resblock_kernel_sizes: List[int] = default_field([3, 5, 7]) # kr
-    resblock_dilation_sizes: List[int] = default_field([[[1], [2]], [[2], [6]], [[3], [12]]]) # Dr
-    upsample_initial_channel: int = 256 # hu
+    upsample_kernel_sizes: List[int] = default_field([16, 16, 8])  # ku
+    resblock_kernel_sizes: List[int] = default_field([3, 5, 7])  # kr
+    resblock_dilation_sizes: List[int] = default_field([[[1], [2]], [[2], [6]], [[3], [12]]])  # Dr
+    upsample_initial_channel: int = 256  # hu
 
     num_gpus: int = 0
-    batch_size: int = 64
+    batch_size: int = 16
     learning_rate: float = 0.0002
     adam_b1: float = 0.8
     adam_b2: float = 0.99
