@@ -21,4 +21,5 @@ def plot_spectrogram_to_buf(spectrogram_tensor, name=None):
     buf = io.BytesIO()
     plt.savefig(buf, format='jpg')
     buf.seek(0)
+    plt.clf()
     return buf

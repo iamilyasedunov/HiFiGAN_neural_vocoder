@@ -32,7 +32,7 @@ class WanDBWriter:
         self.mode = ""
         self.timer = datetime.now()
 
-    def set_step(self, step, mode="train"):
+    def set_step(self, step, mode=""):
         self.mode = mode
         self.step = step
         if step == 0:

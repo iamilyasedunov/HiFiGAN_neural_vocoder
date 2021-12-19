@@ -39,7 +39,6 @@ class Batch:
     def to(self, device: torch.device) -> 'Batch':
         mel = self.mel.to(device)
         waveform = self.waveform.to(device)
-        # mel_loss = self.mel_loss.to(device)
         return Batch(mel, waveform)
 
 
@@ -68,8 +67,8 @@ class LJSpeechDataset(torchaudio.datasets.LJSPEECH):
         mel = self.featurizer(audio)
         return mel, audio
 
-class LJSpeechCollator:
 
+class LJSpeechCollator:
     def __call__(self, instances: List[Tuple]) -> 'Batch':
         mel, waveform = list(
             zip(*instances)

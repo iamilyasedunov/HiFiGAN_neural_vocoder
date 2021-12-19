@@ -9,8 +9,6 @@ from utils.config import TaskConfig
 import itertools
 from tqdm import tqdm
 
-warnings.filterwarnings("ignore")
-
 set_seed(21)
 
 
@@ -20,6 +18,7 @@ def main(config):
     metrics = {
         "num_steps": 0,
         "loss": [],
+        "best_loss": 10000
     }
     # featurizer = MelSpectrogram(config)
 
@@ -29,6 +28,9 @@ def main(config):
                                 collate_fn=LJSpeechCollator())
 
     model = HiFiGAN(config, writer)
+
+    if config.checkpont_path:
+        model.load_checkpoint()
 
     model.to_train()
     for epoch in range(config.training_epoch):
@@ -42,9 +44,8 @@ def main(config):
             model.train_logging()
             if metrics["num_steps"] % config.val_step == 0 and metrics["num_steps"] != 1:
                 model.validation(val_dataloader)
-
+                model.save_checkpoint(epoch)
         model.sched_step()
-    print('exit')
 
 
 if __name__ == "__main__":

@@ -1,29 +1,27 @@
 from utils.utils import *
 from torch.nn.utils import weight_norm, remove_weight_norm, spectral_norm
-import itertools
+import itertools, torchaudio
 from preprocessing.log_mel_spec import MelSpectrogram
 from datetime import datetime
+from utils.config import MAX_LEN
 
 
-def get_padding(kernel_size, dilation=1):
-    return int((kernel_size * dilation - dilation) / 2)
+def init_weights(m):
+    classname = m.__class__.__name__
+    if classname.find("Conv") != -1:
+        m.weight.data.normal_(0.0, 0.01)
+
+
+def get_padding(k, d=1):
+    return int((d * k - d) / 2)
 
 
 class PeriodDiscriminator(torch.nn.Module):
     def __init__(self, period, kernel_size=5, stride=3, use_spectral_norm=False):
         super(PeriodDiscriminator, self).__init__()
         self.period = period
-        # norm_f = weight_norm if use_spectral_norm == False else spectral_norm
+
         # period discriminator config
-
-        self.convs = nn.ModuleList([
-            nn.Conv2d(1, 32, (kernel_size, 1), (stride, 1), padding=(2, 0)),
-            nn.Conv2d(32, 128, (kernel_size, 1), (stride, 1), padding=(2, 0)),
-            nn.Conv2d(128, 512, (kernel_size, 1), (stride, 1), padding=(2, 0)),
-            nn.Conv2d(512, 1024, (kernel_size, 1), (stride, 1), padding=(2, 0)),
-            nn.Conv2d(1024, 1024, (kernel_size, 1), (1,), padding=(2, 0)),
-        ])
-
         d_p_config = {
             "in_channels": [1, 32, 128, 512, 1024],
             "out_channels": [32, 128, 512, 1024, 1024],
@@ -34,23 +32,22 @@ class PeriodDiscriminator(torch.nn.Module):
         num_convs = len(d_p_config["in_channels"])
         self.conv_leaky_layers = nn.ModuleList([
             nn.Sequential(
-                nn.Conv1d(in_channels=d_p_config["in_channels"][idx],
-                          out_channels=d_p_config["out_channels"][idx],
-                          kernel_size=d_p_config["kernel_sizes"][idx],
-                          stride=d_p_config["stride"][idx],
-                          padding=d_p_config["padding"][idx]),
+                weight_norm(nn.Conv1d(in_channels=d_p_config["in_channels"][idx],
+                                      out_channels=d_p_config["out_channels"][idx],
+                                      kernel_size=d_p_config["kernel_sizes"][idx],
+                                      stride=d_p_config["stride"][idx],
+                                      padding=d_p_config["padding"][idx])),
                 nn.LeakyReLU(LRELU_NEGATIVE_SLOPE),
             )
             for idx in range(num_convs)
         ])
 
-        self.conv_post = nn.Conv2d(1024, 1, (3, 1), (1,), padding=(1, 0))
+        self.conv_post = weight_norm(nn.Conv2d(1024, 1, (3, 1), (1,), padding=(1, 0)))
 
     def forward(self, x):
         fmap = []
 
         # 1d to 2d
-        # print(f"PeriodDiscriminator: x shape: {x.shape}")
         b, c, t = x.shape
         if t % self.period != 0:  # pad first
             n_pad = self.period - (t % self.period)
@@ -93,7 +90,7 @@ class MultiPeriodDiscriminator(torch.nn.Module):
 
 
 class ScaleDiscriminator(torch.nn.Module):
-    def __init__(self, use_spectral_norm=False):
+    def __init__(self):
         super(ScaleDiscriminator, self).__init__()
         # scale discriminator config
         d_s_config = {
@@ -108,17 +105,17 @@ class ScaleDiscriminator(torch.nn.Module):
 
         self.conv_leaky_layers = nn.ModuleList([
             nn.Sequential(
-                nn.Conv1d(in_channels=d_s_config["in_channels"][idx],
-                          out_channels=d_s_config["out_channels"][idx],
-                          kernel_size=(d_s_config["kernel_sizes"][idx],),
-                          stride=(d_s_config["stride"][idx],),
-                          groups=d_s_config["groups"][idx],
-                          padding=d_s_config["padding"][idx]),
+                weight_norm(nn.Conv1d(in_channels=d_s_config["in_channels"][idx],
+                                      out_channels=d_s_config["out_channels"][idx],
+                                      kernel_size=(d_s_config["kernel_sizes"][idx],),
+                                      stride=(d_s_config["stride"][idx],),
+                                      groups=d_s_config["groups"][idx],
+                                      padding=d_s_config["padding"][idx])),
                 nn.LeakyReLU(LRELU_NEGATIVE_SLOPE),
             )
             for idx in range(num_convs)
         ])
-        self.conv_output = nn.Conv1d(1024, 1, (3,), (1,), padding=1)
+        self.conv_output = weight_norm(nn.Conv1d(1024, 1, (3,), (1,), padding=1))
 
     def forward(self, x):
         fmap = []
@@ -136,14 +133,9 @@ class MultiScaleDiscriminator(nn.Module):
     def __init__(self, ):
         super(MultiScaleDiscriminator, self).__init__()
         self.discriminators = nn.ModuleList([
-            ScaleDiscriminator(use_spectral_norm=True),
-            ScaleDiscriminator(),
-            ScaleDiscriminator(),
+            ScaleDiscriminator() for _ in range(3)
         ])
-        self.meanpools = nn.ModuleList([
-            nn.AvgPool1d(4, 2, padding=2),
-            nn.AvgPool1d(4, 2, padding=2)
-        ])
+        self.meanpool = nn.AvgPool1d(4, 2, padding=2)
 
     def forward(self, y, y_hat):
         y_d_rs = []
@@ -152,8 +144,8 @@ class MultiScaleDiscriminator(nn.Module):
         fmap_gs = []
         for i, d in enumerate(self.discriminators):
             if i != 0:
-                y = self.meanpools[i - 1](y)
-                y_hat = self.meanpools[i - 1](y_hat)
+                y = self.meanpool(y)
+                y_hat = self.meanpool(y_hat)
             y_d_r, fmap_r = d(y)
             y_d_g, fmap_g = d(y_hat)
             y_d_rs.append(y_d_r)
@@ -180,6 +172,10 @@ class ResBlockCore(nn.Module):
         x_lrelu_conv2 = self.conv2(x_lrelu_conv2) + x_lrelu_conv1
 
         return x_lrelu_conv2
+
+    def remove_weight_norm(self):
+        remove_weight_norm(self.conv1)
+        remove_weight_norm(self.conv2)
 
 
 class MRF(nn.Module):
@@ -235,6 +231,17 @@ class Generator(nn.Module):
         x = self.output_layers(x)
         return x
 
+    def remove_weight_norm(self):
+        remove_weight_norm(self.input_conv)
+        print('Removing weight norm...')
+        for block in [self.generator, self.output_layers]:
+            for layer in block:
+                if len(layer.state_dict()) != 0:
+                    try:
+                        nn.utils.remove_weight_norm(layer)
+                    except:
+                        layer.remove_weight_norm()
+
 
 class HiFiGAN:
     def __init__(self, config, writer):
@@ -245,6 +252,8 @@ class HiFiGAN:
             "mel_error": [],
             "loss_mel": [],
         }
+        self.last_val_loss = None
+        self.best_loss = MAX_LEN
         self.featurizer = MelSpectrogram(config)
         self.config = config
         self.writer = writer
@@ -275,27 +284,14 @@ class HiFiGAN:
         y = y.unsqueeze(1)
         self.optim_d.zero_grad()
 
-        # MPD
-        y_df_hat_r, y_df_hat_g, _, _ = self.mpd(y, y_g_hat.detach())
-        loss_disc_f, losses_disc_f_r, losses_disc_f_g = self.discriminator_loss(y_df_hat_r, y_df_hat_g)
-
-        # MSD
-        y_ds_hat_r, y_ds_hat_g, _, _ = self.msd(y, y_g_hat.detach())
-        loss_disc_s, losses_disc_s_r, losses_disc_s_g = self.discriminator_loss(y_ds_hat_r, y_ds_hat_g)
-
-        loss_disc_all = loss_disc_s + loss_disc_f
+        loss_disc_all = self.get_disc_loss(y, y_g_hat.detach())
         loss_disc_all.backward()
         self.optim_d.step()
 
         self.optim_g.zero_grad()
         loss_mel = F.l1_loss(x, y_g_hat_mel) * 45
-        y_df_hat_r, y_df_hat_g, fmap_f_r, fmap_f_g = self.mpd(y, y_g_hat)
-        y_ds_hat_r, y_ds_hat_g, fmap_s_r, fmap_s_g = self.msd(y, y_g_hat)
-        loss_fm_f = self.feature_loss(fmap_f_r, fmap_f_g)
-        loss_fm_s = self.feature_loss(fmap_s_r, fmap_s_g)
-        loss_gen_f, losses_gen_f = self.generator_loss(y_df_hat_g)
-        loss_gen_s, losses_gen_s = self.generator_loss(y_ds_hat_g)
-        loss_gen_all = loss_gen_s + loss_gen_f + loss_fm_s + loss_fm_f + loss_mel
+        loss_gen = self.get_gen_loss(y, y_g_hat)
+        loss_gen_all = loss_gen + loss_mel
 
         loss_gen_all.backward()
 
@@ -307,12 +303,12 @@ class HiFiGAN:
 
     def train_logging(self):
         if self.steps % self.config.log_step == 0:
-            to_log = {'Step' : self.steps,
+            to_log = {'Step': self.steps,
                       'loss_mel': np.mean(self.metrics["loss_mel"]),
                       'loss_gen_all': np.mean(self.metrics["loss_gen_all"])}
             self.writer.set_step(self.steps)
-            self.writer.add_spectrogram("true_mel", self.metrics["true_mel"])
-            self.writer.add_spectrogram("gen_mel", self.metrics["y_g_hat_mel"].detach())
+            self.writer.add_spectrogram("train/true_mel", self.metrics["true_mel"])
+            self.writer.add_spectrogram("train/gen_mel", self.metrics["y_g_hat_mel"].detach())
 
             self.writer.add_scalars("train", to_log)
 
@@ -321,13 +317,15 @@ class HiFiGAN:
 
             print(to_log)
 
-    def validation(self, val_dataloader):
+    def validation(self, val_dataloader, train=True):
+        if not train:
+            self.generator.remove_weight_norm()
         self.generator.eval()
         torch.cuda.empty_cache()
         val_err_tot = 0
         with torch.no_grad():
             for j, batch in tqdm(enumerate(val_dataloader), desc="val",
-                                 total=len(val_dataloader)):
+                                 total=len(val_dataloader), position=0, leave=True):
                 batch = batch.to(self.config.device)
                 x, y = batch.mel, batch.waveform
                 y_g_hat = self.generator(x.to(self.config.device))
@@ -337,56 +335,86 @@ class HiFiGAN:
                 if j % self.config.val_log_step == 0:
                     self.writer.set_step(self.steps)
                     # if self.steps == 0:
-                    self.writer.add_audio('gt/y_{}'.format(j), y[0], self.config.sampling_rate)
-                    self.writer.add_spectrogram('gt/y_spec_{}'.format(j), x)
+                    self.writer.add_audio('real/y', y[0], self.config.sampling_rate)
+                    self.writer.add_spectrogram('real/y_spec', x)
 
-                    self.writer.add_audio('generated/y_hat_{}'.format(j), y_g_hat[0], self.config.sampling_rate)
+                    self.writer.add_audio('generated/y_hat', y_g_hat[0], self.config.sampling_rate)
                     y_hat_spec = self.featurizer(y_g_hat.squeeze(1).cpu())
-                    self.writer.add_spectrogram('generated/y_hat_spec_{}'.format(j), y_hat_spec)
+                    self.writer.add_spectrogram('generated/y_hat_spec', y_hat_spec)
+            for idx, path_file in enumerate(os.listdir(self.config.test_files_dir)):
+                wav, sr = torchaudio.load(os.path.join(self.config.test_files_dir, path_file))
+                x = self.featurizer(wav).to(self.config.device)
+                y_g_hat = self.generator(x)
+                audio = y_g_hat.squeeze()
+                self.writer.add_audio(f'test/y_{idx}', audio, self.config.sampling_rate)
+                self.writer.add_spectrogram(f'test/y_spec_{idx}', x)
+
             self.writer.set_step(self.steps)
             val_err = val_err_tot / (j + 1)
+            print(f"Val mel_spec err: {val_err}")
             self.writer.add_scalar("validation/mel_spec_error", val_err)
         self.generator.train()
+        self.last_val_loss = val_err
+        return val_err
 
     def sched_step(self):
         self.scheduler_g.step()
         self.scheduler_d.step()
 
-    @staticmethod
-    def feature_loss(fmap_r, fmap_g):
-        loss = 0
-        for dr, dg in zip(fmap_r, fmap_g):
-            for rl, gl in zip(dr, dg):
-                loss += torch.mean(torch.abs(rl - gl))
+    def get_disc_loss(self, y, y_g_hat):
+        mpd_real, mpd_gen, _, _ = self.mpd(y, y_g_hat.detach())
+        msd_real, msd_gen, _, _ = self.msd(y, y_g_hat.detach())
 
-        return loss * 2
+        loss_mpd, loss_msd = 0, 0
+        for (mpd_r, mpd_g, msd_r, msd_g) in zip(mpd_real, mpd_gen, msd_real, msd_gen):
+            loss_mpd += (torch.mean((1 - mpd_r) ** 2) + torch.mean(mpd_g ** 2))
+            loss_msd += (torch.mean((1 - msd_r) ** 2) + torch.mean(msd_g ** 2))
+        return loss_mpd + loss_msd
 
-    @staticmethod
-    def generator_loss(disc_outputs):
-        loss = 0
-        gen_losses = []
-        for dg in disc_outputs:
-            l = torch.mean((1 - dg) ** 2)
-            gen_losses.append(l)
-            loss += l
+    def get_gen_loss(self, y, y_g_hat):
+        feature_loss, generator_loss = 0, 0
 
-        return loss, gen_losses
+        mpd_real, mpd_gen, fmap_mpd_real, fmap_mpd_gen = self.mpd(y, y_g_hat.detach())
+        msd_real, msd_gen, fmap_msd_real, fmap_msd_gen = self.msd(y, y_g_hat.detach())
+        # feature loss
+        for (f_mpd_r, f_mpd_g, f_msd_r, f_msd_g) in zip(fmap_mpd_real, fmap_mpd_gen,
+                                                        fmap_msd_real, fmap_msd_gen):
+            for f_mpd_r_, f_mpd_g_, f_msd_r_, f_msd_g_ in zip(f_mpd_r, f_mpd_g,
+                                                              f_msd_r, f_msd_g):
+                feature_loss += torch.mean(torch.abs(f_mpd_r_ - f_mpd_g_)) + \
+                                torch.mean(torch.abs(f_msd_r_ - f_msd_g_))
+        feature_loss = feature_loss * 2
 
-    @staticmethod
-    def discriminator_loss(disc_real_outputs, disc_generated_outputs):
-        loss = 0
-        r_losses = []
-        g_losses = []
-        for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
-            r_loss = torch.mean((1 - dr) ** 2)
-            g_loss = torch.mean(dg ** 2)
-            loss += (r_loss + g_loss)
-            r_losses.append(r_loss.item())
-            g_losses.append(g_loss.item())
+        # generator loss
+        for mpd_gen_, msd_gen_ in zip(mpd_gen, msd_gen):
+            generator_loss += torch.mean((1 - mpd_gen_) ** 2) + torch.mean((1 - msd_gen_) ** 2)
 
-        return loss, r_losses, g_losses
+        return feature_loss + generator_loss
 
     def to_train(self):
         self.generator.train()
         self.msd.train()
         self.mpd.train()
+
+    def save_checkpoint(self, epoch):
+        checkpoint_path = f"{self.config.save_dir}/model_{epoch}_{round(self.last_val_loss, 3)}.pth"
+        print(f"Saving checkpoint: {checkpoint_path}")
+        save_obj = {'generator': self.generator.state_dict(),
+                    'mpd': self.mpd.state_dict(),
+                    'msd': self.msd.state_dict(),
+                    'optim_g': self.optim_g.state_dict(),
+                    'optim_d': self.optim_d.state_dict(),
+                    'steps': self.steps,
+                    'epoch': epoch}
+        torch.save(save_obj, checkpoint_path)
+
+    def load_checkpoint(self):
+        checkpoint_obj = torch.load(self.config.checkpont_path)
+        self.generator.load_state_dict(checkpoint_obj['generator'])
+        self.mpd.load_state_dict(checkpoint_obj['mpd'])
+        self.msd.load_state_dict(checkpoint_obj['msd'])
+        self.steps = checkpoint_obj['steps'] + 1
+        self.optim_g.load_state_dict(checkpoint_obj['optim_g'])
+        self.optim_d.load_state_dict(checkpoint_obj['optim_d'])
+        last_epoch = checkpoint_obj['epoch']
+        print(f"Checpoint loaded: {self.config.checkpont_path}")

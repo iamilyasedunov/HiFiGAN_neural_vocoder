@@ -13,15 +13,17 @@ MAX_LEN = 10000000
 @dataclass
 class TaskConfig:
     len_data: int = MAX_LEN
+    test_files_dir: str = "other/"
+    checkpont_path: str = "saved/models/nv_full_model_with_log/1219_194555/model_0_1.456.pth"
     save_dir: str = ""
     log_dir: str = ""
     data_path: str = './LJSpeech-1.1/'
     verbosity: int = 2
     name: str = "TTS"
-    log_step: int = 100
-    val_log_step: int = 100
-    val_step: int = 1000
-    exper_name: str = f"neural_vocoder_full_model"
+    log_step: int = 10
+    val_log_step: int = 10
+    val_step: int = 10
+    exper_name: str = f"nv_full_model_with_log"
     device: torch.device = torch.device(
         'cuda:0' if torch.cuda.is_available() else 'cpu')
 
