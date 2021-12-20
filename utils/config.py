@@ -14,7 +14,7 @@ MAX_LEN = 10000000
 class TaskConfig:
     len_data: int = MAX_LEN
     test_files_dir: str = "other/"
-    checkpont_path: str = "saved/models/nv_full_model_with_log/1220_084326/model_10_0.297.pth"
+    checkpont_path: str = "bins/model.pth"
     save_dir: str = ""
     log_dir: str = ""
     data_path: str = './LJSpeech-1.1/'
