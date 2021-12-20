@@ -254,7 +254,9 @@ class HiFiGAN:
         }
         self.last_val_loss = None
         self.best_loss = MAX_LEN
+        self.featurizer_loss = MelSpectrogram(config, True)
         self.featurizer = MelSpectrogram(config)
+
         self.config = config
         self.writer = writer
         self.generator = Generator(config)
@@ -276,11 +278,11 @@ class HiFiGAN:
     def train_step(self, batch):
         self.steps += 1
         batch = batch.to(self.config.device)
-        x, y = batch.mel, batch.waveform
+        x, y, y_mel = batch.mel, batch.waveform, batch.mel_loss
 
         y_g_hat = self.generator(x)
 
-        y_g_hat_mel = self.featurizer(y_g_hat.squeeze(1).cpu()).to(self.config.device)
+        y_g_hat_mel = self.featurizer_loss(y_g_hat.squeeze(1).cpu()).to(self.config.device)
         y = y.unsqueeze(1)
         self.optim_d.zero_grad()
 
@@ -289,7 +291,7 @@ class HiFiGAN:
         self.optim_d.step()
 
         self.optim_g.zero_grad()
-        loss_mel = F.l1_loss(x, y_g_hat_mel) * 45
+        loss_mel = F.l1_loss(y_mel, y_g_hat_mel) * 45
         loss_gen = self.get_gen_loss(y, y_g_hat)
         loss_gen_all = loss_gen + loss_mel
 
@@ -327,10 +329,10 @@ class HiFiGAN:
             for j, batch in tqdm(enumerate(val_dataloader), desc="val",
                                  total=len(val_dataloader), position=0, leave=True):
                 batch = batch.to(self.config.device)
-                x, y = batch.mel, batch.waveform
+                x, y, y_mel = batch.mel, batch.waveform, batch.mel_loss
                 y_g_hat = self.generator(x.to(self.config.device))
-                y_g_hat_mel = self.featurizer(y_g_hat.squeeze(1).cpu()).to(self.config.device)
-                val_err_tot += F.l1_loss(x, y_g_hat_mel).item()
+                y_g_hat_mel = self.featurizer_loss(y_g_hat.squeeze(1).cpu()).to(self.config.device)
+                val_err_tot += F.l1_loss(y_mel, y_g_hat_mel).item()
 
                 if j % self.config.val_log_step == 0:
                     self.writer.set_step(self.steps)
@@ -339,8 +341,7 @@ class HiFiGAN:
                     self.writer.add_spectrogram('real/y_spec', x)
 
                     self.writer.add_audio('generated/y_hat', y_g_hat[0], self.config.sampling_rate)
-                    y_hat_spec = self.featurizer(y_g_hat.squeeze(1).cpu())
-                    self.writer.add_spectrogram('generated/y_hat_spec', y_hat_spec)
+                    self.writer.add_spectrogram('generated/y_hat_spec', y_g_hat_mel.detach())
             for idx, path_file in enumerate(os.listdir(self.config.test_files_dir)):
                 wav, sr = torchaudio.load(os.path.join(self.config.test_files_dir, path_file))
                 x = self.featurizer(wav).to(self.config.device)

@@ -8,7 +8,9 @@ import librosa
 from librosa.filters import mel as librosa_mel_fn
 from utils.config import TaskConfig
 from matplotlib import pyplot as plt
+
 sys.path.append(sys.path[0] + "/..")
+
 
 @dataclass
 class MelSpectrogramConfig:
@@ -27,7 +29,7 @@ class MelSpectrogramConfig:
 
 class MelSpectrogram(nn.Module):
 
-    def __init__(self, config: TaskConfig):
+    def __init__(self, config: TaskConfig, for_loss=False):
         super(MelSpectrogram, self).__init__()
 
         self.config = config
@@ -53,7 +55,7 @@ class MelSpectrogram(nn.Module):
             n_fft=config.n_fft,
             n_mels=config.num_mels,
             fmin=config.fmin,
-            fmax=config.fmax
+            fmax=None if for_loss else config.fmax,
         ).T
         self.mel_spectrogram.mel_scale.fb.copy_(torch.tensor(mel_basis_))
         pad = int((config.n_fft - config.hop_size) / 2)

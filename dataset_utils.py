@@ -27,12 +27,13 @@ class DatasetDownloader():
 class Batch:
     mel: torch.Tensor
     waveform: torch.Tensor
-    # mel_loss: torch.Tensor
+    mel_loss: torch.Tensor
 
     def to(self, device: torch.device) -> 'Batch':
         mel = self.mel.to(device)
         waveform = self.waveform.to(device)
-        return Batch(mel, waveform)
+        mel_loss = self.mel_loss.to(device)
+        return Batch(mel, waveform, mel_loss)
 
 
 class LJSpeechDataset(torchaudio.datasets.LJSPEECH):
@@ -42,6 +43,7 @@ class LJSpeechDataset(torchaudio.datasets.LJSPEECH):
         self.config = config
         # self.config.fmax_loss = None
         self.featurizer = MelSpectrogram(config)
+        self.featurizer_loss = MelSpectrogram(config, True)
         if train:
             self._flist = self._flist[:int(len(self._flist) * 0.80)]
             print(f"Len train manifest: {len(self._flist)}")
@@ -58,12 +60,13 @@ class LJSpeechDataset(torchaudio.datasets.LJSPEECH):
         else:
             audio = torch.nn.functional.pad(audio, (0, self.config.segment_size - audio.size(1)), 'constant')
         mel = self.featurizer(audio)
-        return mel, audio
+        mel_loss = self.featurizer_loss(audio)
+        return mel, audio, mel_loss
 
 
 class LJSpeechCollator:
     def __call__(self, instances: List[Tuple]) -> 'Batch':
-        mel, waveform = list(
+        mel, waveform, mel_loss = list(
             zip(*instances)
         )
         waveform = pad_sequence([
@@ -74,6 +77,11 @@ class LJSpeechCollator:
             mel_[0] for mel_ in mel
         ])
 
-        mel = torch.permute(mel, (1, 0, 2))
+        mel_loss = pad_sequence([
+            mel_loss_[0] for mel_loss_ in mel_loss
+        ])
 
-        return Batch(mel, waveform)
+        mel = torch.permute(mel, (1, 0, 2))
+        mel_loss = torch.permute(mel_loss, (1, 0, 2))
+
+        return Batch(mel, waveform, mel_loss)
