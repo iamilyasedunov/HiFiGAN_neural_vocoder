@@ -20,7 +20,6 @@ def main(config):
         "loss": [],
         "best_loss": 10000
     }
-    # featurizer = MelSpectrogram(config)
 
     train_dataloader = DataLoader(LJSpeechDataset('../', config, train=True), batch_size=config.batch_size,
                                   collate_fn=LJSpeechCollator())

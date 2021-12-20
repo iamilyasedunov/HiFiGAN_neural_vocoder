@@ -55,4 +55,4 @@ class TaskConfig:
     adam_b2: float = 0.99
     lr_decay: float = 0.999
 
-    training_epoch: int = 3000
+    training_epoch: int = 1
